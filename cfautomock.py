@@ -48,41 +48,27 @@ class cfautomockCommand(sublime_plugin.TextCommand):
         for argument in cfarguments:
             if required_only:
                 if argument.intersects(method) and required_attr_re.search(self.view.substr(argument)):
-                    for key in self.view.substr(argument).split():
-                    # TODO
-                    # ^this is the bug that t-dawg found. it splits on the spaces, not on the 
-                    # equals, so you get unbalanced keys that don't match anything.
-                        # remove quotes and dbl quotes
-                        value = re.sub("[\'\" ]", "", key)
+                    tokens = re.sub( "(<\s*cfargument\s*|\\|>)\s*", "", self.view.substr(argument), re.IGNORECASE)
 
-                        if name_attr_re.search(key):
-                            # remove name=
-                            name_value = re.sub("name\s*\=\s*", "", value)
-
-                        if type_attr_re.search(key):
-                            # remove type=
-                            type_value = re.sub("type\s*\=\s*", "", value)
+                    for attr_name, attr_value in re.findall("([a-zA-Z]+)\s*=\s*[\'\"]([a-zA-Z-_]+)[\'\"]", tokens):
+                        if attr_name == "name":
+                            name_value = attr_value
+                        if attr_name == "type":
+                            type_value = attr_value
 
                     # store the supported argument name and type
                     if type_value.lower() in self.supported_argument_types:
                         arguments.append([name_value, type_value.lower()])
             else:
                 if argument.intersects(method):
-                    for key in self.view.substr(argument).split():
-                    # TODO
-                    # ^this is the bug that t-dawg found. it splits on the spaces, not on the 
-                    # equals, so you get unbalanced keys that don't match anything.
-                        # remove quotes and dbl quotes
-                        value = re.sub("[\'\" ]", "", key)
+                    tokens = re.sub( "(<\s*cfargument\s*|\\|>)\s*", "", self.view.substr(argument), re.IGNORECASE)
 
-                        if name_attr_re.search(key):
-                            # remove name=
-                            name_value = re.sub("name\s*\=", "", value)
+                    for attr_name, attr_value in re.findall("([a-zA-Z]+)\s*=\s*[\'\"]([a-zA-Z-_]+)[\'\"]", tokens):
+                        if attr_name == "name":
+                            name_value = attr_value
+                        if attr_name == "type":
+                            type_value = attr_value
 
-                        if type_attr_re.search(key):
-                            # remove type=
-                            type_value = re.sub("type\s*\=", "", value) 
-                    
                     # store the supported argument name and type
                     if type_value.lower() in self.supported_argument_types:
                         arguments.append([name_value, type_value.lower()])
@@ -234,6 +220,7 @@ class cfautomockCommand(sublime_plugin.TextCommand):
 
     
     def built_complete_test(self, _method):
+        unit_test = ""
         method_details = { 'Name' : '', 'Access' : 'public' }
         method_line_by_line = self.view.split_by_newlines(_method)
         self.access_level_re = re.compile("access\s*\=\s*[\"\']", re.IGNORECASE)
