@@ -3,85 +3,85 @@ import math
 import re
 
 class cfautomockCommand(sublime_plugin.TextCommand):
+    def get_dummy_value_for_type(self, cftype):
+        type_values = { 
+                'any' : '\"\"', 
+                'array' : '[]', 
+                'binary' : 'toBinary(toBase64(\"a\"))', 
+                'boolean' : 'true', 
+                'date' : 'Now()', 
+                'guid' : 'CreateUUID()', 
+                'numeric' : '0', 
+                'query' : 'QueryNew(\"col\",\"int\")', 
+                'string' : '\"\"', 
+                'struct' : '{}', 
+                'uuid' : 'CreateUUID()', 
+                'xml' : '\"<a></a>\"' }
+        return type_values[cftype]
+
+    def get_arguments(self, method, required_only=False):
+        arguments = []
+
+        cfarguments = self.view.find_all("<cfargument[\s\S]*?>")
+
+        name_attr_re = re.compile("name\s*\=\s*[\"\']", re.IGNORECASE)
+        type_attr_re = re.compile("type\s*\=\s*[\"\']", re.IGNORECASE)
+        required_attr_re = re.compile("required\s*\=\s*[\"\'](true|yes|1)", re.IGNORECASE)
+        single_quote_re = re.compile("[\'\" ]", re.IGNORECASE)
+        supported_argument_types = [
+                'any',
+                'array',
+                'binary',
+                'boolean',
+                'date',
+                'guid',
+                'numeric',
+                'query',
+                'string',
+                'struct',
+                'uuid',
+                'xml' ]
+
+        for argindex, argument in enumerate(cfarguments):
+            if required_only == True:
+                if argument.intersects(method) and required_attr_re.search(self.view.substr(argument)):
+                    for key in self.view.substr(argument).split():
+                        # remove quotes and dbl quotes
+                        value = re.sub("[\'\" ]", "", str(key))
+
+                        if name_attr_re.search(key):
+                            # remove name=
+                            name_value = re.sub("name\=", "", str(value))
+
+                        if type_attr_re.search(key):
+                            # remove type=
+                            type_value = re.sub("type\=", "", str(value))
+
+                    # store the supported argument name and type
+                    if type_value.lower() in supported_argument_types:
+                        arguments.append([name_value, type_value.lower()])
+            else:
+                if argument.intersects(method):
+                    for key in self.view.substr(argument).split():
+                        # remove quotes and dbl quotes
+                        value = re.sub("[\'\" ]", "", str(key))
+
+                        if name_attr_re.search(key):
+                            # remove name=
+                            name_value = re.sub("name\=", "", str(value))
+
+                        if type_attr_re.search(key):
+                            # remove type=
+                            type_value = re.sub("type\=", "", str(value)) 
+                    
+                    # store the supported argument name and type
+                    if type_value.lower() in supported_argument_types:
+                        arguments.append([name_value, type_value.lower()])
+
+        return arguments
     
     def run(self, edit):
 
-        def get_dummy_value_for_type(cftype):
-            type_values = { 
-                    'any' : '\"\"', 
-                    'array' : '[]', 
-                    'binary' : 'toBinary(toBase64(\"a\"))', 
-                    'boolean' : 'true', 
-                    'date' : 'Now()', 
-                    'guid' : 'CreateUUID()', 
-                    'numeric' : '0', 
-                    'query' : 'QueryNew(\"col\",\"int\")', 
-                    'string' : '\"\"', 
-                    'struct' : '{}', 
-                    'uuid' : 'CreateUUID()', 
-                    'xml' : '\"<a></a>\"' }
-            return type_values[cftype]
-
-        def get_arguments(method, required_only=False):
-            arguments = []
-
-            cfarguments = self.view.find_all("<cfargument[\s\S]*?>")
-
-            name_attr_re = re.compile("name\s*\=\s*[\"\']", re.IGNORECASE)
-            type_attr_re = re.compile("type\s*\=\s*[\"\']", re.IGNORECASE)
-            required_attr_re = re.compile("required\s*\=\s*[\"\'](true|yes|1)", re.IGNORECASE)
-            single_quote_re = re.compile("[\'\" ]", re.IGNORECASE)
-            supported_argument_types = [
-                    'any',
-                    'array',
-                    'binary',
-                    'boolean',
-                    'date',
-                    'guid',
-                    'numeric',
-                    'query',
-                    'string',
-                    'struct',
-                    'uuid',
-                    'xml' ]
-
-            for argindex, argument in enumerate(cfarguments):
-                if required_only == True:
-                    if argument.intersects(method) and required_attr_re.search(self.view.substr(argument)):
-                        for key in self.view.substr(argument).split():
-                            # remove quotes and dbl quotes
-                            value = re.sub("[\'\" ]", "", str(key))
-
-                            if name_attr_re.search(key):
-                                # remove name=
-                                name_value = re.sub("name\=", "", str(value))
-
-                            if type_attr_re.search(key):
-                                # remove type=
-                                type_value = re.sub("type\=", "", str(value))
-
-                        # store the supported argument name and type
-                        if type_value.lower() in supported_argument_types:
-                            arguments.append([name_value, type_value.lower()])
-                else:
-                    if argument.intersects(method):
-                        for key in self.view.substr(argument).split():
-                            # remove quotes and dbl quotes
-                            value = re.sub("[\'\" ]", "", str(key))
-
-                            if name_attr_re.search(key):
-                                # remove name=
-                                name_value = re.sub("name\=", "", str(value))
-
-                            if type_attr_re.search(key):
-                                # remove type=
-                                type_value = re.sub("type\=", "", str(value)) 
-                        
-                        # store the supported argument name and type
-                        if type_value.lower() in supported_argument_types:
-                            arguments.append([name_value, type_value.lower()])
-
-            return arguments
 
         #write general stats
         f = self.view
@@ -169,7 +169,7 @@ class cfautomockCommand(sublime_plugin.TextCommand):
 
         
             # gather all arguments
-            arguments = get_arguments(method)
+            arguments = self.get_arguments(method)
 
             unit_test = ""
             unit_test += "\n\n\t<cffunction name=\"" + str(method_details['Name']) + "_ValidArgs_ReturnsSuccess\" access=\"public\">"
@@ -222,7 +222,7 @@ class cfautomockCommand(sublime_plugin.TextCommand):
             unit_test += "\n\t\t\t(" 
             
             for oindex, argument in enumerate(arguments):
-                unit_test += "\n\t\t\t\t" + argument[0] + " = " + get_dummy_value_for_type(argument[1])
+                unit_test += "\n\t\t\t\t" + argument[0] + " = " + self.get_dummy_value_for_type(argument[1])
                 if oindex+1 < len(arguments):
                     unit_test += ","                    
 
@@ -264,7 +264,7 @@ class cfautomockCommand(sublime_plugin.TextCommand):
 
             # create missing arg unit test
             
-            arguments = get_arguments(method, True)
+            arguments = self.get_arguments(method, True)
 
             for argument in arguments:
                 unit_test = ""
@@ -279,7 +279,7 @@ class cfautomockCommand(sublime_plugin.TextCommand):
                 other_arguments.remove(argument)
 
                 for oindex, other_arg in enumerate(other_arguments):
-                    unit_test += "\n\t\t\t" + other_arg[0] + " = " + get_dummy_value_for_type(other_arg[1])
+                    unit_test += "\n\t\t\t" + other_arg[0] + " = " + self.get_dummy_value_for_type(other_arg[1])
                     if oindex+1 < len(other_arguments):
                         unit_test += ","                    
 
