@@ -3,302 +3,320 @@ import math
 import re
 
 class cfautomockCommand(sublime_plugin.TextCommand):
-	
-	def run(self, edit):
+    
+    def run(self, edit):
 
-		def getDummyValueForType(cftype):
-			typeValues = { 'any' : '\"\"', 'array' : '[]', 'binary' : 'toBinary(toBase64(\"a\"))', 'boolean' : 'true', 'date' : 'Now()', 'guid' : 'CreateUUID()', 'numeric' : '0', 'query' : 'QueryNew(\"col\",\"int\")', 'string' : '\"\"', 'struct' : '{}', 'uuid' : 'CreateUUID()', 'xml' : '\"<a></a>\"' }
-			return typeValues[cftype]
+        def get_dummy_value_for_type(cftype):
+            type_values = { 
+                    'any' : '\"\"', 
+                    'array' : '[]', 
+                    'binary' : 'toBinary(toBase64(\"a\"))', 
+                    'boolean' : 'true', 
+                    'date' : 'Now()', 
+                    'guid' : 'CreateUUID()', 
+                    'numeric' : '0', 
+                    'query' : 'QueryNew(\"col\",\"int\")', 
+                    'string' : '\"\"', 
+                    'struct' : '{}', 
+                    'uuid' : 'CreateUUID()', 
+                    'xml' : '\"<a></a>\"' }
+            return type_values[cftype]
 
-		def getArguments(method,requiredOnly=False):
-			arguments = []
+        def get_arguments(method, required_only=False):
+            arguments = []
 
-			cfarguments = self.view.find_all("<cfargument[\s\S]*?>")
+            cfarguments = self.view.find_all("<cfargument[\s\S]*?>")
 
-			re_LookFor_ArgName = re.compile("name\s*\=\s*[\"\']", re.IGNORECASE)
-			re_LookFor_ArgType = re.compile("type\s*\=\s*[\"\']", re.IGNORECASE)
-			re_LookFor_requiredTrue = re.compile("required\s*\=\s*[\"\'](true|yes|1)", re.IGNORECASE)
-			re_LookFor_sQuote = re.compile("[\'\" ]", re.IGNORECASE)
-			supportedArgumentTypes = ['any','array','binary','boolean','date','guid','numeric','query','string','struct','uuid','xml']
+            name_attr_re = re.compile("name\s*\=\s*[\"\']", re.IGNORECASE)
+            type_attr_re = re.compile("type\s*\=\s*[\"\']", re.IGNORECASE)
+            required_attr_re = re.compile("required\s*\=\s*[\"\'](true|yes|1)", re.IGNORECASE)
+            single_quote_re = re.compile("[\'\" ]", re.IGNORECASE)
+            supported_argument_types = [
+                    'any',
+                    'array',
+                    'binary',
+                    'boolean',
+                    'date',
+                    'guid',
+                    'numeric',
+                    'query',
+                    'string',
+                    'struct',
+                    'uuid',
+                    'xml' ]
 
-			for argindex,argument in enumerate(cfarguments):
-				if requiredOnly == True:
-					if argument.intersects(method) and re_LookFor_requiredTrue.search(self.view.substr(argument)):						
-						for key in self.view.substr(argument).split():
+            for argindex, argument in enumerate(cfarguments):
+                if required_only == True:
+                    if argument.intersects(method) and required_attr_re.search(self.view.substr(argument)):
+                        for key in self.view.substr(argument).split():
+                            # remove quotes and dbl quotes
+                            value = re.sub("[\'\" ]", "", str(key))
 
-							# remove quotes and dbl quotes
-							value = re.sub("[\'\" ]","",str(key)) 
+                            if name_attr_re.search(key):
+                                # remove name=
+                                name_value = re.sub("name\=", "", str(value))
 
-							if re_LookFor_ArgName.search(key):						
+                            if type_attr_re.search(key):
+                                # remove type=
+                                type_value = re.sub("type\=", "", str(value))
 
-								# remove name=
-								NameValue = re.sub("name\=","",str(value)) 
+                        # store the supported argument name and type
+                        if type_value.lower() in supported_argument_types:
+                            arguments.append([name_value, type_value.lower()])
+                else:
+                    if argument.intersects(method):
+                        for key in self.view.substr(argument).split():
+                            # remove quotes and dbl quotes
+                            value = re.sub("[\'\" ]", "", str(key))
 
-							if re_LookFor_ArgType.search(key):
+                            if name_attr_re.search(key):
+                                # remove name=
+                                name_value = re.sub("name\=", "", str(value))
 
-								# remove type=
-								TypeValue = re.sub("type\=","",str(value)) 
-						
-						# store the supported argument name and type
-						if TypeValue.lower() in supportedArgumentTypes:
-							arguments.append([NameValue,TypeValue.lower()])
-				else:
-					if argument.intersects(method):						
-						for key in self.view.substr(argument).split():
+                            if type_attr_re.search(key):
+                                # remove type=
+                                type_value = re.sub("type\=", "", str(value)) 
+                        
+                        # store the supported argument name and type
+                        if type_value.lower() in supported_argument_types:
+                            arguments.append([name_value, type_value.lower()])
 
-							# remove quotes and dbl quotes
-							value = re.sub("[\'\" ]","",str(key)) 
+            return arguments
 
-							if re_LookFor_ArgName.search(key):						
+        #write general stats
+        f = self.view
+        # fucking string.format(), how does it work?
+        return_msg = ""
+        return_msg = "\nCFAutoMock \n\nGeneral Stats:\n==========================================================================================================================\n"
+        return_msg += "File: "+str(f.file_name())+"\nSize: ~"+str(f.size()/1024)+"Kb ("+str(f.size())+" bytes)\n"
+        all = self.view.find_all("[\s\S]*")
+        self.view.add_regions("AllContent", all, "source", sublime.HIDDEN)
+        g = self.view.get_regions("AllContent")
+        for allregion in g:
+            h = len(self.view.substr(allregion))
+        
+        #get all functions
+        all_methods = self.view.find_all("<cffunction[\s\S]*?<\/cffunction>", sublime.IGNORECASE)
 
-								# remove name=
-								NameValue = re.sub("name\=","",str(value)) 
+        public_method_indices = []
+        private_method_indices = []
+        remote_method_indices = []
+        package_method_indices = []
 
-							if re_LookFor_ArgType.search(key):
+        #loop through functions and find all private and remote functions
+        for idx, method in enumerate(all_methods):
+            method_line_by_line = self.view.split_by_newlines(method)
+            access_public_re = re.compile("access\s*\=\s*[\"\'](public)[\"\']", re.IGNORECASE)
+            access_remote_re = re.compile("access\s*\=\s*[\"\'](remote)[\"\']", re.IGNORECASE)
+            access_private_re = re.compile("access\s*\=\s*[\"\'](private)[\"\']", re.IGNORECASE)
+            access_package_re = re.compile("access\s*\=\s*[\"\'](package)[\"\']", re.IGNORECASE)
 
-								# remove type=
-								TypeValue = re.sub("type\=","",str(value)) 
-						
-						# store the supported argument name and type
-						if TypeValue.lower() in supportedArgumentTypes:
-							arguments.append([NameValue,TypeValue.lower()])
+            for line in method_line_by_line:
+                found_access_public = access_public_re.search(self.view.substr(line))
+                if found_access_public:
+                    public_method_indices.append(idx)                    
+            
+            for line in method_line_by_line:
+                found_access_remote = access_remote_re.search(self.view.substr(line))
+                if found_access_remote:
+                    remote_method_indices.append(idx)                    
 
-			return arguments
-
-		#write general stats
-		f = self.view
-		returnMessage = ""
-		returnMessage = "\nCFAutoMock \n\nGeneral Stats:\n==========================================================================================================================\n"
-		returnMessage += "File: "+str(f.file_name())+"\nSize: ~"+str(f.size()/1024)+"Kb ("+str(f.size())+" bytes)\n"
-		all = self.view.find_all("[\s\S]*")
-		self.view.add_regions("AllContent", all, "source", sublime.HIDDEN)
-		g = self.view.get_regions("AllContent")
-		for allregion in g:
-			h = len(self.view.substr(allregion))
-		
-		#get all functions
-		allMethods = self.view.find_all("<cffunction[\s\S]*?<\/cffunction>", sublime.IGNORECASE)
-
-		PublicMethodIndexes = []
-		PrivateMethodIndexes = []
-		RemoteMethodIndexes = []
-		PackageMethodIndexes = []
-
-		#loop through functions and find all private and remote functions
-		for idx,method in enumerate(allMethods):
-			methodLineByLine = self.view.split_by_newlines(method)
-			re_accessPublic = re.compile("access\s*\=\s*[\"\'](public)[\"\']", re.IGNORECASE)
-			re_accessRemote = re.compile("access\s*\=\s*[\"\'](remote)[\"\']", re.IGNORECASE)
-			re_accessPrivate = re.compile("access\s*\=\s*[\"\'](private)[\"\']", re.IGNORECASE)
-			re_accessPackage = re.compile("access\s*\=\s*[\"\'](package)[\"\']", re.IGNORECASE)
-
-			for line in methodLineByLine:
-				foundAccessPublic = re_accessPublic.search(self.view.substr(line))
-				if foundAccessPublic:
-					PublicMethodIndexes.append(idx)					
-			
-			for line in methodLineByLine:
-				foundAccessRemote = re_accessRemote.search(self.view.substr(line))
-				if foundAccessRemote:
-					RemoteMethodIndexes.append(idx)					
-
-			for line in methodLineByLine:
-				foundAccessPrivate = re_accessPrivate.search(self.view.substr(line))
-				if foundAccessPrivate:
-					PrivateMethodIndexes.append(idx)
-			
-			for line in methodLineByLine:
-				foundAccessPackage = re_accessPackage.search(self.view.substr(line))
-				if foundAccessPackage:
-					PackageMethodIndexes.append(idx)
-
-
-		returnMessage += "Methods:\n\t" + str(len(PublicMethodIndexes)) + " Public\n\t" + str(len(PrivateMethodIndexes)) + " Private\n\t" + str(len(RemoteMethodIndexes)) + " Remote\n\t" + str(len(PackageMethodIndexes)) + " Package"
-		returnMessage += "\n==========================================================================================================================\n"
-		
-		ShellUnitTestsCollection = ""
-		CompleteUnitTestsCollection = ""
-		unitTestsTotal= 0
-	
-		
-
-		# #############################
-		# UNIT TEST SHELLS 
-		# #############################
-
-		# loop through methods and begin writing unit tests 
-		for idx,method in enumerate(allMethods):
-
-			MethodDetails = { 'Name' : '', 'Access' : 'public' }
-			methodLineByLine = self.view.split_by_newlines(method)
-			re_LookFor_MethodName = re.compile("name\s*\=\s*[\"\']", re.IGNORECASE)
-			re_LookFor_Access = re.compile("access\s*\=\s*[\"\']", re.IGNORECASE)
-			re_LookFor_Functions = re.compile("(?<!response)(?<!result)\.[A-Za-z\d_]+\(", re.IGNORECASE)
-
-			# get the method name and access
-			for line in methodLineByLine:				
-				if not len(MethodDetails['Name']) and re_LookFor_MethodName.search(self.view.substr(line)):
-					for splittedItem in self.view.substr(line).split():
-						if re_LookFor_MethodName.search(splittedItem):
-							MethodDetails['Name'] = re.sub(">","",str(splittedItem))
-							MethodDetails['Name'] = re.sub("[\'\" ]","",str(MethodDetails['Name']))
-							MethodDetails['Name'] = re.sub("name\=","",str(MethodDetails['Name']))
-						elif re_LookFor_Access.search(splittedItem):
-							MethodDetails['Access'] = re.sub(">","",str(splittedItem).lower())
-							MethodDetails['Access'] = re.sub("[\'\" ]","",str(MethodDetails['Access']))
-							MethodDetails['Access'] = re.sub("access\=","",str(MethodDetails['Access']))
-
-		
-			# gather all arguments
-			arguments = getArguments(method)
-
-			unitTest = ""
-			unitTest += "\n\n\t<cffunction name=\"" + str(MethodDetails['Name']) + "_ValidArgs_ReturnsSuccess\" access=\"public\">"
-			unitTest += "\n\t\t<cfscript>"
-			unitTest += "\n\t\t\tvar Obj = __GetComponentToBeTested();"
-			unitTest += "\n\t\t\tvar expected  = \"\";"
-			if str(MethodDetails['Access']) == "private":
-				unitTest += "\n\t\t\tmakePublic(Obj, \"" + str(MethodDetails['Name']) + "\");"
-
-			# mock variables stored components and their methods
-			VariablesScopeDendencies = re.findall(r'variables\.[^\.]*?\.[^\(]*?\([^\;]*?\;', self.view.substr(method), re.IGNORECASE)
-
-			ComponentsToBeMocked = []
-			ComponentMethodsToBeMocked = []
-			for DependencyToMock in VariablesScopeDendencies:
-				NameOfComponentToBeMocked = re.findall(r'(?<=variables\.).*?(?=\.)', DependencyToMock, re.IGNORECASE)
-				NameOfComponentMethodToBeMocked = re.findall(r'(?<=\.)[^\.]*?(?=[\r\n]?\()', DependencyToMock, re.IGNORECASE)
-				ArgsForComponentMethodToBeMocked = re.findall(r'(?<=[\(])[^;]*(?=\)\;)', DependencyToMock, re.IGNORECASE)
-				if ArgsForComponentMethodToBeMocked[0]:
-					NumberOfArgsForComponentMethodToBeMocked = len(ArgsForComponentMethodToBeMocked[0].strip().split(','))
-				else:
-					NumberOfArgsForComponentMethodToBeMocked = 0
-
-				if NameOfComponentToBeMocked[0] and NameOfComponentMethodToBeMocked[0]:
-					if {'ComponentName' : NameOfComponentToBeMocked[0], 'Scope' : 'variables'} not in ComponentsToBeMocked:
-						ComponentsToBeMocked.append({'ComponentName' : NameOfComponentToBeMocked[0], 'Scope' : 'variables'})
-
-					if {'ComponentName' : NameOfComponentToBeMocked[0], 'MethodName' : NameOfComponentMethodToBeMocked[0].strip(), 'NumberOfArgs' : NumberOfArgsForComponentMethodToBeMocked } not in ComponentMethodsToBeMocked:
-						ComponentMethodsToBeMocked.append({'ComponentName' : NameOfComponentToBeMocked[0], 'MethodName' : NameOfComponentMethodToBeMocked[0].strip(), 'NumberOfArgs' : NumberOfArgsForComponentMethodToBeMocked })
-
-				else:
-					unitTest += "\n\t\t\t/* Failed to mock: " + str(DependencyToMock) + "*/"
-
-			# write mocked methods
-			for Component in ComponentsToBeMocked:
-				unitTest += "\n\n\t\t\tvar " + str(Component['ComponentName']) + "Mock = mock();"
-				
-				for ComponentMethodToBeMocked in ComponentMethodsToBeMocked:
-					if Component['ComponentName'] == ComponentMethodToBeMocked['ComponentName']:
-						unitTest += "\n\t\t\tvar " + str(ComponentMethodToBeMocked['MethodName']) + "Return = \"\";"
-
-				for ComponentMethodToBeMocked in ComponentMethodsToBeMocked:
-					if Component['ComponentName'] == ComponentMethodToBeMocked['ComponentName']:
-						unitTest += "\n\t\t\t" + str(Component['ComponentName']) + "Mock." + str(ComponentMethodToBeMocked['MethodName']) + "(" + ','.join(["\"{any}\"" for a in range(0,ComponentMethodToBeMocked['NumberOfArgs'])]) + ").returns(" + str(ComponentMethodToBeMocked['MethodName']) + "Return);"
-
-				unitTest += "\n\t\t\tinjectProperty(Obj, \"" + str(Component['ComponentName']) + "\", " + str(Component['ComponentName']) + "Mock, \"" + str(Component['Scope'])  + "\");"
-
-			# write actual 
-			unitTest += "\n\n\t\t\tvar actual = Obj." + str(MethodDetails['Name'])
-			unitTest += "\n\t\t\t(" 
-			
-			for oindex,argument in enumerate(arguments):
-				unitTest += "\n\t\t\t\t" + argument[0] + " = " + getDummyValueForType(argument[1])
-				if oindex+1 < len(arguments):
-					unitTest += ","					
-
-			unitTest += "\n\t\t\t);"
-			unitTest += "\n\n\t\t\tAssert(actual eq expected,\"Expected something but got something else\");"
-			unitTest += "\n\t\t</cfscript>"
-			unitTest += "\n\t</cffunction>"
-			ShellUnitTestsCollection += unitTest
-			unitTestsTotal += 1
-
-			
+            for line in method_line_by_line:
+                found_access_private = access_private_re.search(self.view.substr(line))
+                if found_access_private:
+                    private_method_indices.append(idx)
+            
+            for line in method_line_by_line:
+                found_access_package = access_package_re.search(self.view.substr(line))
+                if found_access_package:
+                    package_method_indices.append(idx)
 
 
-		# #############################
-		# COMPLETE UNIT TESTS
-		# #############################
+        return_msg += "Methods:\n\t" + str(len(public_method_indices)) + " Public\n\t" + str(len(private_method_indices)) + " Private\n\t" + str(len(remote_method_indices)) + " Remote\n\t" + str(len(package_method_indices)) + " Package"
+        return_msg += "\n==========================================================================================================================\n"
+        
+        shell_unit_tests_collection = ""
+        complete_unit_tests_collection = ""
+        unit_tests_total= 0
+    
+        
 
-		# loop through methods and begin writing unit tests 
-		for idx,method in enumerate(allMethods):
+        # #############################
+        # UNIT TEST SHELLS  #TODO rename these because a "shell" is a place you run "shell commands"
+        # #############################
 
-			MethodDetails = { 'Name' : '', 'Access' : 'public' }
-			methodLineByLine = self.view.split_by_newlines(method)
-			re_LookFor_MethodName = re.compile("name\s*\=\s*[\"\']", re.IGNORECASE)
-			re_LookFor_Access = re.compile("access\s*\=\s*[\"\']", re.IGNORECASE)
-			re_LookFor_Functions = re.compile("(?<!response)(?<!result)\.[A-Za-z\d_]+\(", re.IGNORECASE)
+        # loop through methods and begin writing unit tests 
+        for idx, method in enumerate(all_methods):
 
-			# get the method name and access
-			for line in methodLineByLine:				
-				if not len(MethodDetails['Name']) and re_LookFor_MethodName.search(self.view.substr(line)):
-					for splittedItem in self.view.substr(line).split():
-						if re_LookFor_MethodName.search(splittedItem):
-							MethodDetails['Name'] = re.sub(">","",str(splittedItem))
-							MethodDetails['Name'] = re.sub("[\'\" ]","",str(MethodDetails['Name']))
-							MethodDetails['Name'] = re.sub("name\=","",str(MethodDetails['Name']))
-						elif re_LookFor_Access.search(splittedItem):
-							MethodDetails['Access'] = re.sub(">","",str(splittedItem).lower())
-							MethodDetails['Access'] = re.sub("[\'\" ]","",str(MethodDetails['Access']))
-							MethodDetails['Access'] = re.sub("access\=","",str(MethodDetails['Access']))
+            method_details = { 'Name' : '', 'Access' : 'public' }
+            method_line_by_line = self.view.split_by_newlines(method)
+            method_name_re = re.compile("name\s*\=\s*[\"\']", re.IGNORECASE)
+            access_level_re = re.compile("access\s*\=\s*[\"\']", re.IGNORECASE)
+            functions_re = re.compile("(?<!response)(?<!result)\.[A-Za-z\d_]+\(", re.IGNORECASE)
 
-			# create missing arg unit test
-			
-			arguments = getArguments(method, True)
+            # get the method name and access
+            for line in method_line_by_line:                
+                if not len(method_details['Name']) and method_name_re.search(self.view.substr(line)):
+                    for splitted_item in self.view.substr(line).split():
+                        if method_name_re.search(splitted_item):
+                            method_details['Name'] = re.sub(">", "", str(splitted_item))
+                            method_details['Name'] = re.sub("[\'\" ]", "", str(method_details['Name']))
+                            method_details['Name'] = re.sub("name\=", "", str(method_details['Name']))
+                        elif access_level_re.search(splitted_item):
+                            method_details['Access'] = re.sub(">", "", str(splitted_item).lower())
+                            method_details['Access'] = re.sub("[\'\" ]", "", str(method_details['Access']))
+                            method_details['Access'] = re.sub("access\=", "", str(method_details['Access']))
 
-			for argument in arguments:
-				unitTest = ""
-				unitTest += "\n\n\t<cffunction name=\"" + str(MethodDetails['Name']) + "_MissingArg_" + argument[0] + "_ReturnsException\" access=\"public\" mxunit:expectedException=\"Coldfusion.runtime.MissingArgumentException\">"
-				if str(MethodDetails['Access']) == "private" or str(MethodDetails['Access']) == "package":
-					unitTest += "\n\t\t<cfset makePublic(\"" + str(MethodDetails['Name']) + "\") />"
+        
+            # gather all arguments
+            arguments = get_arguments(method)
 
-				unitTest += "\n\t\t<cfset variables.ComponentToBeTested." + str(MethodDetails['Name'])
-				unitTest += "\n\t\t(" 
-				
-				otherarguments = list(arguments)
-				otherarguments.remove(argument)
+            unit_test = ""
+            unit_test += "\n\n\t<cffunction name=\"" + str(method_details['Name']) + "_ValidArgs_ReturnsSuccess\" access=\"public\">"
+            unit_test += "\n\t\t<cfscript>"
+            unit_test += "\n\t\t\tvar Obj = __GetComponentToBeTested();"
+            unit_test += "\n\t\t\tvar expected  = \"\";"
+            if str(method_details['Access']) == "private":
+                unit_test += "\n\t\t\tmakePublic(Obj, \"" + str(method_details['Name']) + "\");"
 
-				for oindex,otherargument in enumerate(otherarguments):
-					unitTest += "\n\t\t\t" + otherargument[0] + " = " + getDummyValueForType(otherargument[1])
-					if oindex+1 < len(otherarguments):
-						unitTest += ","					
+            # mock variables stored components and their methods
+            variable_scop_dependencies = re.findall(r'variables\.[^\.]*?\.[^\(]*?\([^\;]*?\;', self.view.substr(method), re.IGNORECASE)
 
-				unitTest += "\n\t\t) />"
-				unitTest += "\n\t</cffunction>"
-				CompleteUnitTestsCollection += unitTest
-				unitTestsTotal += 1
-		
+            components_to_mock = []
+            component_methods_to_mock = []
+            for dependency_to_mock in variable_scop_dependencies:
+                name_of_component_to_mock = re.findall(r'(?<=variables\.).*?(?=\.)', dependency_to_mock, re.IGNORECASE)
+                name_of_method_to_mock = re.findall(r'(?<=\.)[^\.]*?(?=[\r\n]?\()', dependency_to_mock, re.IGNORECASE)
+                args_for_component_method_to_mock = re.findall(r'(?<=[\(])[^;]*(?=\)\;)', dependency_to_mock, re.IGNORECASE)
+                if args_for_component_method_to_mock[0]:
+                    number_of_args_for_component_method_to_mock = len(args_for_component_method_to_mock[0].strip().split(','))
+                else:
+                    number_of_args_for_component_method_to_mock = 0
 
-		returnMessage += "\n<cfcomponent extends=\"unittests.myTestCasesConfig\">"
-		returnMessage += "\n\n\t<!--------------------------------------------------------------------------"
-		returnMessage += "\n\tSection: Public methods"
-		returnMessage += "\n\t--------------------------------------------------------------------------->"
-		returnMessage += "\n\n\t<cffunction name=\"Setup\" access=\"public\">"
-		returnMessage += "\n\t\t<cfset variables.ComponentToBeTested = __GetComponentToBeTested() />"
-		returnMessage += "\n\t</cffunction>"
-		returnMessage += "\n\n\t<cffunction name=\"TearDown\" access=\"public\">"
-		returnMessage += "\n\t\t<cfset StructDelete(variables, \"ComponentToBeTested\") />"
-		returnMessage += "\n\t</cffunction>\n"
-		returnMessage += "\n\n\n\t<!--------------------------------------------------------------------------"
-		returnMessage += "\n\tSection: Unit Test Shells - These unit tests must be finished by the end user."
-		returnMessage += "\n\t--------------------------------------------------------------------------->"
-		returnMessage += ShellUnitTestsCollection
-		returnMessage += "\n\n\n\t<!--------------------------------------------------------------------------"
-		returnMessage += "\n\tSection: Complete Unit Tests"
-		returnMessage += "\n\t--------------------------------------------------------------------------->"
-		returnMessage += CompleteUnitTestsCollection
-		returnMessage += "\n\n\n\t<!--------------------------------------------------------------------------"
-		returnMessage += "\n\tSection: Private methods"
-		returnMessage += "\n\t--------------------------------------------------------------------------->"
-		returnMessage += "\n\n\t<cffunction name=\"__GetComponentToBeTested\" access=\"private\">"
-		returnMessage += "\n\t\t<cfreturn CreateObject(\"component\",\"path.to.ComponentToBeTested\") />"
-		returnMessage += "\n\t</cffunction>"
-		returnMessage += "\n\n</cfcomponent>"
-		#send to new file
-		w = self.view.window()
-		w.run_command("new_file")
-		v = w.active_view()
-		v.insert(edit,0,returnMessage)
+                if name_of_component_to_mock[0] and name_of_method_to_mock[0]:
+                    if {'ComponentName' : name_of_component_to_mock[0], 'Scope' : 'variables'} not in components_to_mock:
+                        components_to_mock.append({'ComponentName' : name_of_component_to_mock[0], 'Scope' : 'variables'})
 
-		
+                    if {'ComponentName' : name_of_component_to_mock[0], 'MethodName' : name_of_method_to_mock[0].strip(), 'NumberOfArgs' : number_of_args_for_component_method_to_mock } not in component_methods_to_mock:
+                        component_methods_to_mock.append({'ComponentName' : name_of_component_to_mock[0], 'MethodName' : name_of_method_to_mock[0].strip(), 'NumberOfArgs' : number_of_args_for_component_method_to_mock })
+
+                else:
+                    unit_test += "\n\t\t\t/* Failed to mock: " + str(dependency_to_mock) + "*/"
+
+            # write mocked methods
+            for component in components_to_mock:
+                unit_test += "\n\n\t\t\tvar " + str(component['ComponentName']) + "Mock = mock();"
+                
+                for component_method_to_mock in component_methods_to_mock:
+                    if component['ComponentName'] == component_method_to_mock['ComponentName']:
+                        unit_test += "\n\t\t\tvar " + str(component_method_to_mock['MethodName']) + "Return = \"\";"
+
+                for component_method_to_mock in component_methods_to_mock:
+                    if component['ComponentName'] == component_method_to_mock['ComponentName']:
+                        unit_test += "\n\t\t\t" + str(component['ComponentName']) + "Mock." + str(component_method_to_mock['MethodName']) + "(" + ','.join(["\"{any}\"" for a in range(0,component_method_to_mock['NumberOfArgs'])]) + ").returns(" + str(component_method_to_mock['MethodName']) + "Return);"
+
+                unit_test += "\n\t\t\tinjectProperty(Obj, \"" + str(component['ComponentName']) + "\", " + str(component['ComponentName']) + "Mock, \"" + str(component['Scope'])  + "\");"
+
+            # write actual 
+            unit_test += "\n\n\t\t\tvar actual = Obj." + str(method_details['Name'])
+            unit_test += "\n\t\t\t(" 
+            
+            for oindex, argument in enumerate(arguments):
+                unit_test += "\n\t\t\t\t" + argument[0] + " = " + get_dummy_value_for_type(argument[1])
+                if oindex+1 < len(arguments):
+                    unit_test += ","                    
+
+            unit_test += "\n\t\t\t);"
+            unit_test += "\n\n\t\t\tAssert(actual eq expected,\"Expected something but got something else\");"
+            unit_test += "\n\t\t</cfscript>"
+            unit_test += "\n\t</cffunction>"
+            shell_unit_tests_collection += unit_test
+            unit_tests_total += 1
+
+            
+
+
+        # #############################
+        # COMPLETE UNIT TESTS
+        # #############################
+
+        # loop through methods and begin writing unit tests 
+        for idx, method in enumerate(all_methods):
+
+            method_details = { 'Name' : '', 'Access' : 'public' }
+            method_line_by_line = self.view.split_by_newlines(method)
+            method_name_re = re.compile("name\s*\=\s*[\"\']", re.IGNORECASE)
+            access_level_re = re.compile("access\s*\=\s*[\"\']", re.IGNORECASE)
+            functions_re = re.compile("(?<!response)(?<!result)\.[A-Za-z\d_]+\(", re.IGNORECASE)
+
+            # get the method name and access
+            for line in method_line_by_line:                
+                if not len(method_details['Name']) and method_name_re.search(self.view.substr(line)):
+                    for splitted_item in self.view.substr(line).split():
+                        if method_name_re.search(splitted_item):
+                            method_details['Name'] = re.sub(">","",str(splitted_item))
+                            method_details['Name'] = re.sub("[\'\" ]","",str(method_details['Name']))
+                            method_details['Name'] = re.sub("name\=","",str(method_details['Name']))
+                        elif access_level_re.search(splitted_item):
+                            method_details['Access'] = re.sub(">","",str(splitted_item).lower())
+                            method_details['Access'] = re.sub("[\'\" ]","",str(method_details['Access']))
+                            method_details['Access'] = re.sub("access\=","",str(method_details['Access']))
+
+            # create missing arg unit test
+            
+            arguments = get_arguments(method, True)
+
+            for argument in arguments:
+                unit_test = ""
+                unit_test += "\n\n\t<cffunction name=\"" + str(method_details['Name']) + "_MissingArg_" + argument[0] + "_ReturnsException\" access=\"public\" mxunit:expectedException=\"Coldfusion.runtime.MissingArgumentException\">"
+                if str(method_details['Access']) == "private" or str(method_details['Access']) == "package":
+                    unit_test += "\n\t\t<cfset makePublic(\"" + str(method_details['Name']) + "\") />"
+
+                unit_test += "\n\t\t<cfset variables.ComponentToBeTested." + str(method_details['Name'])
+                unit_test += "\n\t\t(" 
+                
+                other_arguments = list(arguments)
+                other_arguments.remove(argument)
+
+                for oindex, other_arg in enumerate(other_arguments):
+                    unit_test += "\n\t\t\t" + other_arg[0] + " = " + get_dummy_value_for_type(other_arg[1])
+                    if oindex+1 < len(other_arguments):
+                        unit_test += ","                    
+
+                unit_test += "\n\t\t) />"
+                unit_test += "\n\t</cffunction>"
+                complete_unit_tests_collection += unit_test
+                unit_tests_total += 1
+        
+
+        # fucking string.format, how does it work?
+        return_msg += "\n<cfcomponent extends=\"unittests.myTestCasesConfig\">"
+        return_msg += "\n\n\t<!--------------------------------------------------------------------------"
+        return_msg += "\n\tSection: Public methods"
+        return_msg += "\n\t--------------------------------------------------------------------------->"
+        return_msg += "\n\n\t<cffunction name=\"Setup\" access=\"public\">"
+        return_msg += "\n\t\t<cfset variables.ComponentToBeTested = __GetComponentToBeTested() />"
+        return_msg += "\n\t</cffunction>"
+        return_msg += "\n\n\t<cffunction name=\"TearDown\" access=\"public\">"
+        return_msg += "\n\t\t<cfset StructDelete(variables, \"ComponentToBeTested\") />"
+        return_msg += "\n\t</cffunction>\n"
+        return_msg += "\n\n\n\t<!--------------------------------------------------------------------------"
+        return_msg += "\n\tSection: Unit Test Shells - These unit tests must be finished by the end user."
+        return_msg += "\n\t--------------------------------------------------------------------------->"
+        return_msg += shell_unit_tests_collection
+        return_msg += "\n\n\n\t<!--------------------------------------------------------------------------"
+        return_msg += "\n\tSection: Complete Unit Tests"
+        return_msg += "\n\t--------------------------------------------------------------------------->"
+        return_msg += complete_unit_tests_collection
+        return_msg += "\n\n\n\t<!--------------------------------------------------------------------------"
+        return_msg += "\n\tSection: Private methods"
+        return_msg += "\n\t--------------------------------------------------------------------------->"
+        return_msg += "\n\n\t<cffunction name=\"__GetComponentToBeTested\" access=\"private\">"
+        return_msg += "\n\t\t<cfreturn CreateObject(\"component\",\"path.to.ComponentToBeTested\") />"
+        return_msg += "\n\t</cffunction>"
+        return_msg += "\n\n</cfcomponent>"
+        #send to new file
+        w = self.view.window()
+        w.run_command("new_file")
+        v = w.active_view()
+        v.insert(edit, 0, return_msg)
