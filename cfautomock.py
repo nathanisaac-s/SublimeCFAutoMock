@@ -4,11 +4,13 @@ import re
 import textwrap
 
 class cfautomockCommand(sublime_plugin.TextCommand):
+    # frequently used regex
     method_name_re = re.compile("name\s*\=\s*[\"\']", re.IGNORECASE)
     access_level_re = re.compile("access\s*\=\s*[\"\']", re.IGNORECASE)
     var_name_re = re.compile("(?<=variables\.).*?(?=\.)", re.IGNORECASE)
     component_args_re = re.compile("(?<=[\(])[^;]*(?=\)\;)", re.IGNORECASE)
     component_method_name_re = re.compile("(?<=\.)[^\.]*?(?=[\r\n]?\()", re.IGNORECASE)
+
     supported_argument_types = [
             'any',
             'array',
@@ -23,7 +25,7 @@ class cfautomockCommand(sublime_plugin.TextCommand):
             'uuid',
             'xml' ]
 
-    type_values = { 
+    _type_values = { 
             'any' : '\"\"', 
             'array' : '[]', 
             'binary' : 'toBinary(toBase64(\"a\"))', 
@@ -37,8 +39,10 @@ class cfautomockCommand(sublime_plugin.TextCommand):
             'uuid' : 'CreateUUID()', 
             'xml' : '\"<a></a>\"' }
 
+
     def get_dummy_value_for_type(self, cftype):
-        return self.type_values[cftype]
+        return self._type_values[cftype]
+
 
     def get_arguments(self, method, required_only=None):
         if not required_only: #safe default value practice
@@ -246,7 +250,7 @@ class cfautomockCommand(sublime_plugin.TextCommand):
             unit_test += "\n\t\t<cfset variables.ComponentToBeTested." + method_details['Name']
             unit_test += "\n\t\t(" 
             
-            other_arguments = list(arguments) #deep copy? this is confusing.
+            other_arguments = list(arguments) #deep copy? a stack? this is confusing.
             other_arguments.remove(argument) #this isn't programming, it's banging a keyboard
 
             unit_test += ", ".join([ 
@@ -330,7 +334,7 @@ class cfautomockCommand(sublime_plugin.TextCommand):
 
 
     def run(self, edit):
-        all = self.view.find_all("[\s\S]*")
+        all = self.view.find_all("[\s\S]*") #wut
         self.view.add_regions("AllContent", all, "source", sublime.HIDDEN)
         g = self.view.get_regions("AllContent")
         for allregion in g:
@@ -340,14 +344,10 @@ class cfautomockCommand(sublime_plugin.TextCommand):
         #TODO holy crap this thing loops over the exact same shit about 10 times
         all_methods = self.view.find_all("<cffunction[\s\S]*?<\/cffunction>", sublime.IGNORECASE)
         
-        stubbed_tests = ""
-        completed_tests = ""
-
         # loop through methods and begin writing unit tests 
-        for method in all_methods:
-            stubbed_tests += self.build_stub_test(method)
-            completed_tests += self.built_complete_test(method)
-        
-        return_msg = self.get_actual_return_msg( all_methods, stubbed_tests, completed_tests )
+        stubbed_tests, completed_tests = zip(*[ (self.build_stub_test(method), self.built_complete_test(method)) 
+            for method in all_methods ])
+
+        return_msg = self.get_actual_return_msg( all_methods, "".join(stubbed_tests), "".join(completed_tests) )
 
         self.populate_new_tab(return_msg, edit)
