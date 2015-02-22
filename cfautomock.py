@@ -8,7 +8,7 @@ class cfautomockCommand(sublime_plugin.TextCommand):
     access_level_re = re.compile("access\s*\=\s*[\"\']", re.IGNORECASE)
     var_name_re = re.compile("(?<=variables\.).*?(?=\.)", re.IGNORECASE)
     component_args_re = re.compile("(?<=[\(])[^;]*(?=\)\;)", re.IGNORECASE)
-    component_method_name_re = re.compile(r'(?<=\.)[^\.]*?(?=[\r\n]?\()', re.IGNORECASE)
+    component_method_name_re = re.compile("(?<=\.)[^\.]*?(?=[\r\n]?\()", re.IGNORECASE)
     supported_argument_types = [
             'any',
             'array',
@@ -44,36 +44,33 @@ class cfautomockCommand(sublime_plugin.TextCommand):
         if not required_only: #safe default value practice
             required_only = False
 
-        def get_type_and_name(string_to_tokenize):
+        def get_type_and_name(string_to_tokenize, arg_list):
             tokens = re.sub( "(<\s*cfargument\s*|\\|>)\s*", "", view_substr, re.IGNORECASE)
 
+            # is this being a loop a bug? this plugin is fucking retarded.
             for attr_name, attr_value in re.findall("([a-zA-Z]+)\s*=\s*[\'\"]([a-zA-Z-_]+)[\'\"]", tokens):
                 if attr_name == "name":
                     name_value = attr_value
                 elif attr_name == "type":
-                    type_value = attr_value
+                    type_value = attr_value.lower()
 
-            return name_value, type_value
+            if type_value in self.supported_argument_types:
+                arg_list.append((name_value, type_value))
+            #return name_value, type_value
 
         cfarguments = self.view.find_all("<cfargument[\s\S]*?>")
         required_attr_re = re.compile("required\s*\=\s*[\"\'](true|yes|1)", re.IGNORECASE)
 
         arguments = []
-        for view_substr in [ self.view.substr(argument) for argument in cfarguments ]:
-            if required_only:
-                if argument.intersects(method) and required_attr_re.search(view_substr):
-                    name_value, type_value = get_type_and_name(view_substr)
-
-                    # store the supported argument name and type
-                    if type_value.lower() in self.supported_argument_types:
-                        arguments.append((name_value, type_value.lower()))
-            else:
-                if argument.intersects(method):
-                    name_value, type_value = get_type_and_name(view_substr)
-
-                    # store the supported argument name and type
-                    if type_value.lower() in self.supported_argument_types:
-                        arguments.append((name_value, type_value.lower()))
+        for argument in cfarguments:
+            view_substr = self.view.substr(argument)
+            if argument.intersects(method):
+                if required_only:
+                    # cool if staircase bro
+                    if required_attr_re.search(view_substr):
+                        get_type_and_name(view_substr, arguments)
+                else:
+                    get_type_and_name(view_substr, arguments)
 
         return arguments
 
@@ -96,21 +93,20 @@ class cfautomockCommand(sublime_plugin.TextCommand):
         pub_count, priv_count, remote_count, pkg_count = 0, 0, 0, 0
 
         smarter_access_re = re.compile("access\s*\=\s*[\"\'](public|remote|private|package)[\"\']", re.IGNORECASE)
-        access_public_re = re.compile("access\s*\=\s*[\"\'](public)[\"\']", re.IGNORECASE)
-        access_remote_re = re.compile("access\s*\=\s*[\"\'](remote)[\"\']", re.IGNORECASE)
-        access_private_re = re.compile("access\s*\=\s*[\"\'](private)[\"\']", re.IGNORECASE)
-        access_package_re = re.compile("access\s*\=\s*[\"\'](package)[\"\']", re.IGNORECASE)
 
         for method in _all_methods:
-            #TODO one regex, not four
-            for line in self.view.split_by_newlines(method):
-                if access_public_re.search(self.view.substr(line)):
+            lines = ( self.view.substr(line).lower() 
+                    for line in self.view.split_by_newlines(method) )
+            hits = ( smarter_access_re.findall(line)[0] 
+                    for line in lines if smarter_access_re.findall(line) )
+            for each in hits:
+                if each == "public":
                     pub_count += 1
-                elif access_private_re.search(self.view.substr(line)):
+                elif each == "private":
                     priv_count += 1
-                elif access_remote_re.search(self.view.substr(line)):
+                elif each == "remote":
                     remote_count += 1
-                elif access_package_re.search(self.view.substr(line)):
+                elif each == "package":
                     pkg_count += 1
 
         return textwrap.dedent("""
@@ -122,6 +118,7 @@ class cfautomockCommand(sublime_plugin.TextCommand):
             ==========================================================================================================================
             """.format( public=pub_count, private=priv_count, remote=remote_count, pkg=pkg_count) )
 
+
     def populate_new_tab(self, text, _edit):
         #send to new file
         new_window = self.view.window()
@@ -131,21 +128,22 @@ class cfautomockCommand(sublime_plugin.TextCommand):
 
 
     def get_method_details(self, method_lines):
+
+        def extract_details( item, regex, init_lambda):
+            modified = init_lambda(re.sub("[>\'\"\s]", "" ,splitted_item))
+            return re.sub(regex, "", modified)
+
         method_details = { 'Name' : '', 'Access' : 'public' }
 
         # get the method name and access
         for line in method_lines:                
             if not len(method_details['Name']) and self.method_name_re.search(self.view.substr(line)):
                 for splitted_item in self.view.substr(line).split():
+                # this could probably be one regex, not two
                     if self.method_name_re.search(splitted_item):
-                        method_details['Name'] = re.sub(">", "", splitted_item)
-                        method_details['Name'] = re.sub("[\'\" ]", "", method_details['Name'])
-                        method_details['Name'] = re.sub("name\s*\=\s*", "", method_details['Name'])
+                        method_details['Name'] = extract_details(splitted_item, "name=\s*\s*", lambda x: x)
                     elif self.access_level_re.search(splitted_item):
-                        # DAE copy and paste easier than DRY?
-                        method_details['Access'] = re.sub(">", "" ,splitted_item).lower()
-                        method_details['Access'] = re.sub("[\'\" ]", "", method_details['Access'])
-                        method_details['Access'] = re.sub("access\s*\=\s*", "", method_details['Access'])
+                        method_details['Access'] = extract_details(splitted_item, "access=\s*\s*", lambda x: x.lower())
 
         return method_details
 
@@ -265,7 +263,7 @@ class cfautomockCommand(sublime_plugin.TextCommand):
         # TODO fucking string.format, how does it work?
         return_msg = self.get_header_stats() + self.get_method_counts(_all_methods)
         # TODO move this into a file, or something. it's stupid in code.
-        # is this a bug? should it  hae an that second unclosed `cfcomponent` tag?
+        # is this a bug? should it  have that second unclosed `cfcomponent` tag?
         pub_methods = textwrap.dedent("""
             <cfcomponent extends=\"unittests.myTestCasesConfig\">
 
