@@ -40,7 +40,9 @@ class cfautomockCommand(sublime_plugin.TextCommand):
     def get_dummy_value_for_type(self, cftype):
         return self.type_values[cftype]
 
-    def get_arguments(self, method, required_only=False):
+    def get_arguments(self, method, required_only=None):
+        if not required_only: #safe default value practice
+            required_only = False
 
         def get_type_and_name(string_to_tokenize):
             tokens = re.sub( "(<\s*cfargument\s*|\\|>)\s*", "", view_substr, re.IGNORECASE)
@@ -53,26 +55,25 @@ class cfautomockCommand(sublime_plugin.TextCommand):
 
             return name_value, type_value
 
-        arguments = []
         cfarguments = self.view.find_all("<cfargument[\s\S]*?>")
         required_attr_re = re.compile("required\s*\=\s*[\"\'](true|yes|1)", re.IGNORECASE)
 
-        for argument in cfarguments:
-            view_substr = self.view.substr(argument)
+        arguments = []
+        for view_substr in [ self.view.substr(argument) for argument in cfarguments ]:
             if required_only:
                 if argument.intersects(method) and required_attr_re.search(view_substr):
                     name_value, type_value = get_type_and_name(view_substr)
 
                     # store the supported argument name and type
                     if type_value.lower() in self.supported_argument_types:
-                        arguments.append([name_value, type_value.lower()])
+                        arguments.append((name_value, type_value.lower()))
             else:
                 if argument.intersects(method):
                     name_value, type_value = get_type_and_name(view_substr)
 
                     # store the supported argument name and type
                     if type_value.lower() in self.supported_argument_types:
-                        arguments.append([name_value, type_value.lower()])
+                        arguments.append((name_value, type_value.lower()))
 
         return arguments
 
